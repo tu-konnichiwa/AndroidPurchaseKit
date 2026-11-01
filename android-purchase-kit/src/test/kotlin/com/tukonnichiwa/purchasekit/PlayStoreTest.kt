@@ -3,6 +3,7 @@ package com.tukonnichiwa.purchasekit
 import android.app.Activity
 import com.android.billingclient.api.*
 import com.tukonnichiwa.purchasekit.internal.play.PlayStore
+import com.tukonnichiwa.purchasekit.internal.tracking.*
 import com.tukonnichiwa.purchasekit.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -237,6 +238,39 @@ class PlayStoreTest {
         verify(client, never()).launchBillingFlow(any(), any())
         respondWithDetails(client)
         assertTrue(store.launch(activity, PurchaseRequest("premium")) is PurchaseKitResult.Success)
+    }
+
+    @Test fun busyCheckoutDoesNotReplaceAttributionAndCancellationClearsIt() = runTest {
+        val journal = TrackingMemoryJournal()
+        val tracking = TrackingCoordinator(journal, { fail("No verified purchase exists"); false }, backgroundScope)
+        val client = checkoutClient()
+        var listener: PurchasesUpdatedListener? = null
+        val store = PlayStore(config, backgroundScope, tracking) { listener = it; client }
+        val activity = mock(Activity::class.java)
+        assertTrue(store.launch(activity, PurchaseRequest("premium", trackingContext = "first")) is PurchaseKitResult.Success)
+        assertEquals(ErrorCode.BUSY, (store.launch(activity,
+            PurchaseRequest("premium", trackingContext = "second")) as PurchaseKitResult.Failure).error.code)
+        assertEquals("first", journal.snapshot.attempts.single().context)
+        listener!!.onPurchasesUpdated(result(BillingClient.BillingResponseCode.USER_CANCELED), null)
+        runCurrent()
+        assertTrue(journal.snapshot.attempts.isEmpty())
+    }
+
+    @Test fun immediateCheckoutErrorDoesNotLeaveStaleAttribution() = runTest {
+        val journal = TrackingMemoryJournal()
+        val tracking = TrackingCoordinator(journal, { true }, backgroundScope)
+        val client = checkoutClient()
+        `when`(client.launchBillingFlow(any(), any())).thenReturn(result(BillingClient.BillingResponseCode.ITEM_UNAVAILABLE))
+        val store = PlayStore(config, backgroundScope, tracking) { client }
+        assertTrue(store.launch(mock(Activity::class.java),
+            PurchaseRequest("premium", trackingContext = "failed")) is PurchaseKitResult.Failure)
+        assertTrue(journal.snapshot.attempts.isEmpty())
+    }
+
+    private class TrackingMemoryJournal : TrackingJournal {
+        var snapshot = TrackingSnapshot()
+        override suspend fun read() = snapshot
+        override suspend fun write(snapshot: TrackingSnapshot) { this.snapshot = snapshot }
     }
 
     private fun checkoutClient() = readyClient().also {

@@ -4,6 +4,10 @@ This guide covers the API in the `android-purchase-kit` module, under the
 `com.tukonnichiwa.purchasekit` package. The code snippets are examples for your
 consuming application. This repository contains only the Android library.
 
+For optional HTTP purchase analytics, durable attribution and retry setup, see
+[Purchase tracking](tracking.md). Tracking is configured separately from the
+verifier; a successful analytics request never authorizes a purchase.
+
 ## 1. Add the library to your application
 
 Android API 26 or newer is required. For installation through JitPack, follow the

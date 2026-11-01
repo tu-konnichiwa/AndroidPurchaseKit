@@ -11,6 +11,7 @@ import com.android.billingclient.api.PendingPurchasesParams
 import com.tukonnichiwa.purchasekit.internal.PurchaseEngine
 import com.tukonnichiwa.purchasekit.internal.play.PlayStore
 import com.tukonnichiwa.purchasekit.model.*
+import com.tukonnichiwa.purchasekit.tracking.PurchaseTracking
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,9 +26,11 @@ public class PurchaseKit private constructor(
     context: Context,
     private val config: PurchaseKitConfig,
     verifier: PurchaseVerifier,
+    tracking: PurchaseTracking?,
 ) : AutoCloseable {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val store = PlayStore(config, scope) { listener ->
+    private val trackingCoordinator = tracking?.coordinator(scope)
+    private val store = PlayStore(config, scope, trackingCoordinator) { listener ->
         BillingClient.newBuilder(context.applicationContext)
             .enablePendingPurchases(PendingPurchasesParams.newBuilder()
                 .enableOneTimeProducts().enablePrepaidPlans().build())
@@ -35,7 +38,7 @@ public class PurchaseKit private constructor(
             .setListener(listener)
             .build()
     }
-    private val engine = PurchaseEngine(config, store, verifier, scope)
+    private val engine = PurchaseEngine(config, store, verifier, scope, trackingCoordinator)
     private var closed = false
 
     /** Current in-memory observations. Backend authorization must not depend on this snapshot. */
@@ -46,6 +49,7 @@ public class PurchaseKit private constructor(
 
     /** Connect, query the catalog, then restore ownership even when the catalog query fails. */
     public suspend fun start(): PurchaseKitResult<PurchaseKitState> = execute {
+        trackingCoordinator?.retry()
         when (val connection = engine.connect()) {
             is PurchaseKitResult.Failure -> connection
             is PurchaseKitResult.Success -> {
@@ -70,6 +74,12 @@ public class PurchaseKit private constructor(
      */
     public suspend fun restorePurchases(): PurchaseKitResult<List<OwnedPurchase>> =
         execute { engine.restorePurchases() }
+
+    /** Schedules replay of durable tracking events, even when the billing service is unavailable. */
+    public suspend fun retryTracking(): PurchaseKitResult<Unit> = execute {
+        trackingCoordinator?.retry()
+        PurchaseKitResult.Success(Unit)
+    }
 
     /**
      * Success means checkout was launched, not that payment succeeded. Observe [state] and [events].
@@ -127,9 +137,15 @@ public class PurchaseKit private constructor(
 
     public companion object {
         /** Creates a disconnected instance. [verifier] is required; no automatic trust policy exists. */
-        public fun create(context: Context, config: PurchaseKitConfig, verifier: PurchaseVerifier): PurchaseKit {
+        @JvmOverloads
+        public fun create(
+            context: Context,
+            config: PurchaseKitConfig,
+            verifier: PurchaseVerifier,
+            tracking: PurchaseTracking? = null,
+        ): PurchaseKit {
             checkMainThread()
-            return PurchaseKit(context.applicationContext, config, verifier)
+            return PurchaseKit(context.applicationContext, config, verifier, tracking)
         }
 
         private fun checkMainThread() {

@@ -4,6 +4,7 @@ import android.app.Activity
 import com.android.billingclient.api.*
 import com.tukonnichiwa.purchasekit.PurchaseKitConfig
 import com.tukonnichiwa.purchasekit.internal.StorePort
+import com.tukonnichiwa.purchasekit.internal.tracking.TrackingCoordinator
 import com.tukonnichiwa.purchasekit.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -16,6 +17,7 @@ import kotlin.coroutines.resume
 internal class PlayStore(
     private val config: PurchaseKitConfig,
     private val scope: CoroutineScope,
+    private val tracking: TrackingCoordinator? = null,
     private val clientFactory: (PurchasesUpdatedListener) -> BillingClient,
 ) : StorePort {
     private val definitions = config.products.associateBy { it.id }
@@ -46,7 +48,10 @@ internal class PlayStore(
                         // them after launch, never while preparing another request.
                         is PurchaseKitResult.Failure -> result.responseCode != BillingClient.BillingResponseCode.OK
                     }
-                    if (finishesCheckout) releaseCheckout(checkout)
+                    if (finishesCheckout) {
+                        if (update is PurchaseKitResult.Failure) tracking?.abandon(checkout.trackingAttempt)
+                        releaseCheckout(checkout)
+                    }
                 }
                 updateChannel.send(update)
             }
@@ -165,11 +170,17 @@ internal class PlayStore(
             if (detailsResult is PurchaseKitResult.Failure) return detailsResult
             val details = (detailsResult as PurchaseKitResult.Success).value.singleOrNull()
                 ?: return failure(ErrorCode.PRODUCT_UNAVAILABLE, "Product is unavailable.")
-            return safely {
+            val mapped = safely {
                 val product = details.toProduct(definition)
                     ?: return@safely failure(ErrorCode.PRODUCT_UNAVAILABLE, "No supported offer is available.")
-                val selected = selectOffer(product, request.offerToken)
-                if (selected is PurchaseKitResult.Failure) return@safely selected
+                PurchaseKitResult.Success(product)
+            }
+            if (mapped is PurchaseKitResult.Failure) return mapped
+            val product = (mapped as PurchaseKitResult.Success).value
+            val selected = selectOffer(product, request.offerToken)
+            if (selected is PurchaseKitResult.Failure) return selected
+            checkout.trackingAttempt = tracking?.prepare(request, product)
+            return safely {
                 val token = (selected as PurchaseKitResult.Success).value
                 val productParams = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details)
                 token?.let { productParams.setOfferToken(it) }
@@ -207,7 +218,10 @@ internal class PlayStore(
                 }
             }
         } finally {
-            if (!launched) releaseCheckout(checkout)
+            if (!launched) {
+                withContext(NonCancellable) { tracking?.abandon(checkout.trackingAttempt) }
+                releaseCheckout(checkout)
+            }
         }
     }
 
@@ -300,6 +314,7 @@ internal class PlayStore(
 
     /** Owns only request metadata and its timer, never an Activity. */
     private class Checkout(val request: PurchaseRequest) {
+        var trackingAttempt: String? = null
         var awaitingCallback = false
         var timeout: Job? = null
 

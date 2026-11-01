@@ -112,10 +112,13 @@ public data class PurchaseRequest(
     val obfuscatedProfileId: String? = null,
     val replacement: SubscriptionReplacement? = null,
     val personalizedPrice: Boolean = false,
+    /** Optional analytics source (for example onboarding). Never include personal data or secrets. */
+    val trackingContext: String? = null,
 ) {
     init {
         require(productId.isNotBlank())
         require(offerToken == null || offerToken.isNotBlank())
+        require(trackingContext == null || (trackingContext.isNotBlank() && trackingContext.length <= 256))
         listOf(obfuscatedAccountId, obfuscatedProfileId).forEach {
             require(it == null || (it.isNotBlank() && it.length <= 64))
         }

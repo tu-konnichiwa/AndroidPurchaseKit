@@ -5,6 +5,7 @@ module provides consumable and non-consumable products, subscriptions, catalog
 queries, checkout, restore, and verification-before-finalization.
 
 **Usage guide:** [Integrating and using AndroidPurchaseKit](docs/usage.md).
+**Optional analytics:** [Persistent purchase tracking](docs/tracking.md).
 
 ## Requirements
 
@@ -194,6 +195,33 @@ be missed when there is no collector, while the backend delivery is durable.
 
 See Google's [purchase integration](https://developer.android.com/google/play/billing/integrate)
 and [verification guidance](https://developer.android.com/google/play/billing/security).
+
+## Optional purchase tracking
+
+```kotlin
+import com.tukonnichiwa.purchasekit.tracking.HttpPurchaseTracker
+import com.tukonnichiwa.purchasekit.tracking.PurchaseTracking
+
+val tracking = PurchaseTracking(
+    context = applicationContext,
+    tracker = HttpPurchaseTracker(applicationContext, "https://your-api.example/purchases"),
+)
+val kit = PurchaseKit.create(applicationContext, config, verifier, tracking)
+
+kit.launchPurchase(activity, PurchaseRequest(
+    productId = "premium",
+    offerToken = selectedOffer.token,
+    trackingContext = "onboarding",
+))
+```
+
+Tracking is disabled unless configured. The HTTP adapter sends `appID`, `purchase`,
+`device_name`, `action_case` and `app_version`. Durable attribution and an outbox
+support retries across restarts without persisting raw purchase tokens or receipts.
+Only verifier-approved purchases become eligible for delivery. Tracking failures
+do not block billing; inspect `tracking.status` and call `kit.retryTracking()` or
+restore to retry. Delivery is at least once when storage and the endpoint succeed,
+not exactly once. See [tracking semantics and integration](docs/tracking.md).
 
 ## Buying a product
 

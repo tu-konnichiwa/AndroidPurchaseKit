@@ -15,12 +15,12 @@ Verified on 2026-11-01 using the JDK 25 bundled with Android Studio:
 JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' ./gradlew :android-purchase-kit:build
 ```
 
-Result: **BUILD SUCCESSFUL**. All 71 JVM tests passed (20 core policy, 16 store
+Result: **BUILD SUCCESSFUL**. All 91 JVM tests passed (20 core policy, 18 store
 adapter, 11 model/mapping, 7 purchase regression, 9 RSA client verification,
-8 no-key verification/integration). Debug and
+8 no-key verification/integration, 18 tracking). Debug and
 release AARs were generated, and Maven local publication succeeded. Android lint
-reported zero errors and five informational warnings: existing Gradle/AGP versions,
-newer JSON/Mockito test dependencies, and an optional KTX URI extension. The
+reported zero errors and six informational warnings: existing Gradle/AGP versions,
+newer JSON/Mockito test dependencies, and optional KTX URI/preferences extensions. The
 release AAR contains the compiled Kotlin API. No device purchase or real backend
 verification was executed.
 
@@ -51,6 +51,15 @@ no acknowledgement of a nested pending token, removal on successful empty restor
 and rejection without finalization. RSA verification tests also pass after sharing
 the local eligibility policy; there is no automatic no-key fallback.
 
+Tracking tests cover persisted context through pending payment/restart, deferred
+replacement attribution, known-token exclusion, failed delivery replay without
+store ownership, sent-marker deduplication and write failure, worker cancellation,
+timeout, engine/storage isolation, pre-consumption staging, period labels and the
+five-field payload. Store integration covers BUSY and launch-error attribution
+cleanup. The published AAR and source JAR contain the tracking API. No request was
+sent to a real analytics endpoint; endpoint behavior and device/process lifecycle
+still require host integration validation.
+
 ## Gaps and priorities
 
 | Priority | Missing / improvement | Why and expected impact | Recommended action / timing | Complexity |
@@ -61,7 +70,7 @@ the local eligibility policy; there is no automatic no-key fallback.
 | P1 | CI and public API compatibility baseline | Prevent regressions and accidental API changes across consumers | Add a CI build/test/lint job and binary API checks before publishing a stable release | Medium |
 | P2 | Documentation/API publication and release checklist | Consumers need discoverable versioned contracts and migration notes | Add generated KDoc, release notes and dependency review when preparing distribution | Medium |
 | P2 | Broader supported Play features | Rentals, preorders, installments, add-on checkout and in-app messages need distinct contracts | Defer until a consuming product needs them, then add corresponding mapping and integration tests | High |
-| P3 | Host analytics integration | Some hosts need purchase-funnel observations | Use existing events for best-effort UI analytics; define a durable server event feed only when required | Low |
+| P3 | Host analytics integration and endpoint idempotency | Optional purchase tracking exists; funnel analytics and server deduplication remain host-specific | Configure the tracker/endpoint and avoid running two trackers; use a custom tracker with an idempotency key when required | Low |
 
 No known unresolved P0 defect in the client implementation is asserted here; the
 P0 row is a required external integration, not an implemented backend.

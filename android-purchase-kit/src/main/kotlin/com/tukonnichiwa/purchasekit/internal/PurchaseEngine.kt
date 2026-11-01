@@ -2,6 +2,7 @@ package com.tukonnichiwa.purchasekit.internal
 
 import com.tukonnichiwa.purchasekit.PurchaseKitConfig
 import com.tukonnichiwa.purchasekit.model.*
+import com.tukonnichiwa.purchasekit.internal.tracking.TrackingCoordinator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -19,6 +20,7 @@ internal class PurchaseEngine(
     private val store: StorePort,
     private val verifier: PurchaseVerifier,
     scope: CoroutineScope,
+    private val tracking: TrackingCoordinator? = null,
 ) {
     private val definitions = config.products.associateBy { it.id }
     private val mutation = Mutex()
@@ -70,6 +72,7 @@ internal class PurchaseEngine(
 
     suspend fun restorePurchases(): PurchaseKitResult<List<OwnedPurchase>> = mutation.withLock {
         if (closed) return@withLock closedResult()
+        tracking?.retry()
         when (val result = store.queryPurchases()) {
             is PurchaseKitResult.Failure -> result.also { report(it.error) }
             is PurchaseKitResult.Success -> {
@@ -157,6 +160,8 @@ internal class PurchaseEngine(
         if (purchase.state == PurchaseState.PENDING) {
             // A late pending callback must not downgrade a completed payment observation.
             if (owned[purchase.token]?.purchase?.state == PurchaseState.PURCHASED || purchase.token in completed) return
+            tracking?.observePending(purchase, state.value.catalog)
+            if (closed) return
             val wasPending = owned[purchase.token]?.verification == VerificationStatus.PENDING
             owned[purchase.token] = OwnedPurchase(purchase, VerificationStatus.PENDING)
             publish()
@@ -185,6 +190,8 @@ internal class PurchaseEngine(
             is VerificationResult.RetryLater -> verificationFailure(purchase, VerificationStatus.RETRY_REQUIRED,
                 PurchaseError(ErrorCode.VERIFICATION_UNAVAILABLE, verdict.reason, retryable = true))
             is VerificationResult.Granted -> {
+                tracking?.verified(purchase, state.value.catalog)
+                if (closed) return
                 owned[purchase.token] = OwnedPurchase(purchase, VerificationStatus.GRANTED)
                 publish()
                 val finalization = when {

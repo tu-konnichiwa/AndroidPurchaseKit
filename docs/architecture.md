@@ -102,6 +102,43 @@ response and cannot establish current account ownership, expiry/refund status,
 replay protection or durable consumable delivery. It adds no persistence and
 does not query Play independently. Foreground restore remains the host's duty.
 
+## Optional durable analytics
+
+We considered asking apps to collect transient Completed events versus adding an
+optional application-owned outbox. UI events can be missed and consumed tokens
+cannot be recovered from later ownership queries, so tracking uses a separate
+`TrackingCoordinator` and `TrackingJournal` port. No analytics dependencies or
+Android types enter the core. `PurchaseTracking` assembles a preference journal,
+tracker and status projection at the outer boundary; all tracking is opt-in.
+
+The checkout adapter records attribution only after acquiring its launch guard
+and validating fresh product/offer details. Attempt identity protects cleanup;
+token hashes known at preparation prevent existing observations taking new
+attribution. Pending observations bind context but cannot trigger delivery. Play
+does not expose an app checkout ID, so same-product/out-of-app attribution is
+advisory and can remain ambiguous.
+
+We also considered recording only after successful finalization versus persisting
+after verification and before consumption. The latter preserves a replayable
+consumable event if the process dies after consumption. Analytics therefore
+describes verifier-approved purchases; it can be delivered before finalization
+succeeds. Delivery never grants access and transport/storage failures never block
+billing success. Storage failures can lose tracking and are surfaced separately.
+
+A single journal snapshot atomically holds attribution, token hashes, ready
+events and sent markers. No raw purchase tokens or receipts are persisted.
+JSON and SharedPreferences stay in the outer adapter; reads and commits run on
+IO. A coroutine worker serializes transport outside the engine mutation mutex.
+Start/restore/manual retry trigger replay even if Play ownership is unavailable.
+There is no background service or automatic timer. A stable journal name with one
+live kit is required; entries persist until host/app data removal.
+
+`HttpPurchaseTracker` uses the platform HTTPS client to avoid adding a networking
+dependency. It preserves the five-field analytics schema and accepts only 2xx,
+without following redirects. A custom `PurchaseTracker` can reuse the host HTTP
+client and include the token hash as a server idempotency key. A lost response or
+sent-marker write can produce duplicate sends; no exactly-once claim is made.
+
 ## Subscription replacement reconciliation
 
 We considered extending every verifier response with retired purchase tokens versus
