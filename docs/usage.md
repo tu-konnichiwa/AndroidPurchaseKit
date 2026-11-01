@@ -64,11 +64,84 @@ import com.tukonnichiwa.purchasekit.PurchaseKitConfig
 import com.tukonnichiwa.purchasekit.model.*
 ```
 
-## 3. Implement PurchaseVerifier
+## 3. Choose a PurchaseVerifier
 
-`PurchaseVerifier` is required. Your application supplies the call to its
-authenticated backend. The library does not provide an endpoint, HTTP client or
-sign-in implementation.
+`PurchaseVerifier` is required. Select the implementation explicitly:
+
+| Available infrastructure | Implementation |
+|---|---|
+| Authenticated backend | Custom `PurchaseVerifier` (recommended) |
+| Play Console billing RSA public key, no backend | `ClientSidePurchaseVerifier` |
+| Neither a backend nor public key | `PlayBillingPurchaseVerifier` (trusts store observations) |
+
+### Built-in client verification (no backend)
+
+```kotlin
+import com.tukonnichiwa.purchasekit.ClientSidePurchaseVerifier
+
+val verifier = ClientSidePurchaseVerifier(
+    base64PublicKey = playConsoleBillingPublicKey,
+    expectedPackageName = context.packageName,
+    products = config.products,
+)
+val kit = PurchaseKit.create(context, config, verifier) // Call on Main.
+```
+
+`config` is your `PurchaseKitConfig`; `playConsoleBillingPublicKey` is your app's
+Base64 licensing/billing RSA public key from Play Console. Do not use the
+app-signing certificate or embed any service-account credentials. The public key
+is parsed once and malformed keys fail immediately with `IllegalArgumentException`.
+
+This implementation supports `SUBSCRIPTION` and `NON_CONSUMABLE` products. It
+verifies Play's SHA1withRSA receipt signature, the configured package and products,
+and that the observed purchase matches the signed payload. Missing or invalid
+proof is rejected. Valid purchased, non-suspended records return `Granted(CLIENT)`;
+the engine acknowledges them. Pending changes are not independently granted.
+`PurchaseRecord.signedData` carries the original JSON and signature; its string
+representation is redacted, but the properties themselves remain sensitive.
+
+Consumable configuration is rejected: use a custom verifier that commits delivery
+idempotently before returning `Granted`. This local verifier does not implement
+account ownership, replay prevention, current subscription expiry/refund checks
+or persistent premium state. Signed historical receipts can remain valid after
+ownership changes. Restore on foreground entry to reconcile Play observations;
+backend verification offers stronger protection and remains recommended. See
+[Google's security guidance](https://developer.android.com/google/play/billing/security).
+
+### Built-in Play Billing trust mode (no backend or public key)
+
+```kotlin
+import com.tukonnichiwa.purchasekit.PlayBillingPurchaseVerifier
+
+val verifier = PlayBillingPurchaseVerifier(
+    expectedPackageName = context.packageName,
+    products = config.products,
+)
+val kit = PurchaseKit.create(context, config, verifier) // Call on Main.
+```
+
+Use this only when you explicitly choose to trust the store observations delivered
+through PurchaseKit. It checks package name, the product allowlist, `PURCHASED`
+state and that the purchase is not suspended, then returns `Granted(CLIENT)`.
+The engine grants the configured entitlement and acknowledges the purchase.
+Pending/suspended purchases and package/product mismatches never grant access.
+The existing parent purchase can retain access while a nested change is pending;
+the pending token itself is not granted or acknowledged.
+
+Only `SUBSCRIPTION` and `NON_CONSUMABLE` products are supported. Blank package
+names, empty/duplicate products and any consumable configuration fail immediately
+with `IllegalArgumentException`. Product configuration is copied at construction.
+
+This implementation does not examine `signedData` or prove receipt authenticity;
+a fabricated `PurchaseRecord` can pass its local checks. It does not validate
+account ownership, current expiry/refunds or replay, and it does not persist
+premium state. Reconcile ownership using foreground restore. Prefer the RSA
+implementation when you have a key, or backend verification for stronger
+guarantees. Signature verification never silently falls back to this mode.
+
+### Custom backend verification
+
+The library does not provide an endpoint, HTTP client or sign-in implementation.
 
 Your backend must validate the token, package, product, purchase state, account
 ownership and subscription validity. It must then persist the entitlement or
@@ -354,8 +427,8 @@ val restoreResult: PurchaseKitResult<List<OwnedPurchase>> = kit.restorePurchases
 |---|---|
 | `PENDING` | Payment is incomplete; no verification, entitlement grant or finalization occurs |
 | `RETRY_REQUIRED` | Verification temporarily failed; restore to retry |
-| `REJECTED` | The backend rejected the purchase |
-| `GRANTED` | The backend granted access; inspect `error` for unfinished finalization |
+| `REJECTED` | The selected verifier rejected the purchase |
+| `GRANTED` | The selected verifier approved access; inspect `error` for unfinished finalization |
 | `SUSPENDED` | The subscription is suspended; no local access is granted |
 
 A successful `restoreResult` confirms that the store query succeeded. Inspect each

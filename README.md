@@ -12,7 +12,9 @@ queries, checkout, restore, and verification-before-finalization.
 - Kotlin and coroutines. Android Gradle Plugin 9.3.3 supplies built-in Kotlin support.
 - The checked-in Gradle 9.5.0 wrapper and its JDK 25 daemon configuration.
 - Google Play Billing 9.1.0 and coroutines 1.11.0 (managed by the version catalog).
-- Play Console products and an authenticated backend implementing `PurchaseVerifier`.
+- Play Console products and a `PurchaseVerifier`: a backend implementation (recommended),
+  `ClientSidePurchaseVerifier` with a public key, or explicit
+  `PlayBillingPurchaseVerifier` when no backend or key is available.
 
 There is no application or sample module or UI framework. JitPack publishing is
 configured for the release AAR and sources; Maven Central publishing is not configured.
@@ -110,6 +112,61 @@ has no lifecycle or UI dependency. Start state/event collectors in separate host
 coroutines; `collect` is a long-running operation.
 
 ## Verification and delivery
+
+### Apps without a backend
+
+With a Play Console billing public key, use signature verification explicitly for
+subscriptions and non-consumables:
+
+```kotlin
+import com.tukonnichiwa.purchasekit.ClientSidePurchaseVerifier
+
+val verifier = ClientSidePurchaseVerifier(
+    base64PublicKey = playConsoleBillingPublicKey,
+    expectedPackageName = applicationContext.packageName,
+    products = config.products,
+)
+val kit = PurchaseKit.create(applicationContext, config, verifier)
+```
+
+`config` is your `PurchaseKitConfig`. Supply the Base64 licensing/billing RSA public
+key from Play Console, not the app-signing certificate or service-account credentials.
+The verifier checks the receipt signature, package, product allowlist, purchased
+state and that all mapped fields agree with the signed receipt. Invalid or missing
+proof is rejected; valid receipts use client acknowledgement. It never falls back
+to trusting unsigned purchases. Key/configuration errors fail at construction time.
+
+This implementation does not support consumables because it cannot durably deliver
+their quantity before consumption. Use a custom verifier with idempotent delivery
+for those products. It also does not provide account authorization, server-side
+expiry/refund checks, replay protection or offline premium persistence. A valid
+signature establishes receipt integrity, not current subscription validity.
+Call `restorePurchases()` on foreground entry; backend verification remains the
+recommended option for stronger purchase and entitlement validation.
+
+### Apps without a backend or public key
+
+```kotlin
+import com.tukonnichiwa.purchasekit.PlayBillingPurchaseVerifier
+
+val verifier = PlayBillingPurchaseVerifier(
+    expectedPackageName = applicationContext.packageName,
+    products = config.products,
+)
+val kit = PurchaseKit.create(applicationContext, config, verifier)
+```
+
+This explicitly trusts observations received through Play Billing after checking
+the package, configured products, `PURCHASED` state and suspension flag. It approves
+local access and client acknowledgement for subscriptions and non-consumables;
+consumable configuration is rejected because durable delivery is not provided.
+No signature or receipt authenticity check occurs, even when `signedData` exists.
+Fabricated observations can pass these checks. This mode does not provide current
+expiry/refund validation, account authorization, replay protection or persistent
+premium state. Restore on foreground entry to reconcile Play ownership. It is
+never used as an automatic fallback for a missing key or invalid signature.
+
+### Backend verification
 
 Implement `PurchaseVerifier.verifyAndGrant(purchase)` using your authenticated
 backend. It must:

@@ -1,19 +1,24 @@
 # Release readiness
 
-The repository contains the Android client library. An authenticated backend and
-Google Play configuration belong to the consuming product and are required before
-real delivery. Passing JVM tests is not evidence that Play checkout works on a device.
+The repository contains the Android client library. Google Play configuration
+belongs to the consuming product. Apps can explicitly use local signature
+verification or no-key observation trust for subscriptions/non-consumables;
+trusted authorization and durable
+consumable delivery require a stronger custom/backend integration. Passing JVM
+tests is not evidence that Play checkout works on a device.
 
 ## Review and verification
 
-Verified on 2026-10-31 using the JDK 25 bundled with Android Studio:
+Verified on 2026-11-01 using the JDK 25 bundled with Android Studio:
 
 ```sh
 JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' ./gradlew :android-purchase-kit:build
 ```
 
-Result: **BUILD SUCCESSFUL**. All 54 JVM tests passed (20 core policy, 16 store
-adapter, 11 model/mapping, 7 purchase regression). Debug and release AARs were generated. Android lint
+Result: **BUILD SUCCESSFUL**. All 71 JVM tests passed (20 core policy, 16 store
+adapter, 11 model/mapping, 7 purchase regression, 9 RSA client verification,
+8 no-key verification/integration). Debug and
+release AARs were generated, and Maven local publication succeeded. Android lint
 reported zero errors and five informational warnings: existing Gradle/AGP versions,
 newer JSON/Mockito test dependencies, and an optional KTX URI extension. The
 release AAR contains the compiled Kotlin API. No device purchase or real backend
@@ -34,11 +39,23 @@ checkout ownership during unrelated callbacks, and pending subscription changes
 through completion or cancellation. The library deliberately does not use
 SDK debug messages or external exception messages as its error contract.
 
+Client verification tests use generated RSA keys and signed receipts to cover
+valid subscription/lifetime access, invalid signatures, tampered data, missing or
+malformed receipts, package/product mismatches, pending/suspended purchases,
+field binding, invalid configuration, redaction and defensive product copying.
+
+No-key verification tests cover unsigned access, package/product mismatches,
+pending/suspended records, configuration validation, defensive copying and explicit
+signature bypass. Engine integration verifies acknowledgement deduplication,
+no acknowledgement of a nested pending token, removal on successful empty restore
+and rejection without finalization. RSA verification tests also pass after sharing
+the local eligibility policy; there is no automatic no-key fallback.
+
 ## Gaps and priorities
 
 | Priority | Missing / improvement | Why and expected impact | Recommended action / timing | Complexity |
 |---|---|---|---|---|
-| P0 integration prerequisite | Deployed authenticated verifier and durable delivery ledger | A client cannot establish trusted ownership or exactly-once balances | Implement in the consuming backend before real purchases; validate account/package/product/token/quantity, commit grants idempotently, handle linked subscriptions and finalization | High |
+| P0 for trusted authorization/consumables | Deployed authenticated verifier and durable delivery ledger | Local signatures do not establish current trusted ownership or exactly-once balances | Implement in the consuming backend when trusted authorization or consumable delivery is needed; validate account/package/product/token/quantity, commit grants idempotently, handle linked subscriptions and finalization | High |
 | P1 | Play license-tester/device validation | Mocks cannot reproduce Play account eligibility, pending-payment UX, real offer tokens or replacement restrictions | Before release, execute the device matrix below against the consuming app and backend | Medium |
 | P1 | Backend lifecycle notifications and reconciliation | Refunds, expiry, hold and revocation can occur while the app is closed | Integrate Google notifications and periodic reconciliation before production subscription use | High |
 | P1 | CI and public API compatibility baseline | Prevent regressions and accidental API changes across consumers | Add a CI build/test/lint job and binary API checks before publishing a stable release | Medium |

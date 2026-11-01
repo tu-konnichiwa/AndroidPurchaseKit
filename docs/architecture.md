@@ -28,9 +28,10 @@ app, and `restorePurchases` reconciles it when the host returns to the foregroun
 
 ## Verification and delivery precede finalization
 
-A required `PurchaseVerifier` validates a purchase with a trusted backend and
-persists its grant idempotently before returning `Granted`. No permissive verifier
-is provided. Consumable quantity must be applied exactly once by the backend,
+A required `PurchaseVerifier` approves access before finalization. A backend
+implementation validates the purchase and persists its grant idempotently before
+returning `Granted`. No verifier is selected implicitly. Consumable quantity must
+be applied exactly once by the delivery implementation,
 keyed by purchase token. The backend may finalize itself, or request client
 acknowledgement/consumption after its grant commits. This avoids a consumable
 being consumed before the user's balance is durably credited.
@@ -55,6 +56,51 @@ No Activity, singleton, global Context, automatic UI lifecycle observer, secret,
 or backend transport client is kept in the core. The host owns authentication,
 backend persistence, foreground refresh and closing/recreating the instance on
 account changes.
+
+## Optional verification without a backend
+
+We considered an unconditional client approval implementation versus checking the
+signed Play receipt with the application's billing public key. The opt-in
+`ClientSidePurchaseVerifier` uses signature verification and fails closed on
+missing, malformed or mismatched data. The application still passes an explicit
+verifier to `PurchaseKit.create`; backend behavior is unchanged.
+
+The SDK adapter preserves the signed receipt in a small pure `SignedPurchaseData`
+value. The client verifier is an outer adapter: it uses Java cryptography and the
+existing Play mapper to bind every observed field to the verified payload. The
+model and engine do not import cryptography, JSON or Billing SDK types. Receipt
+and signature strings are redacted from `toString`; applications must also avoid
+logging or insecurely persisting the exposed raw properties.
+
+Crypto and receipt parsing run on Default. The allowed product IDs are copied at
+construction. Only subscriptions and non-consumables are supported, because an
+automatic consumable approval would finalize before durable quantity delivery.
+Local signature verification cannot establish receipt freshness, current refund
+or expiry status, account ownership, or replay prevention. It does not add an
+offline entitlement cache. These remain reasons to prefer backend verification.
+The additive `PurchaseRecord.signedData` field defaults to null for custom records;
+such records continue to work with custom verifiers but fail RSA signature verification.
+
+## Explicit trust mode without a public key
+
+We considered silently accepting unsigned receipts in the RSA implementation
+versus exposing a separate implementation for apps without a backend or key.
+`PlayBillingPurchaseVerifier` is a separate, explicitly selected policy. Missing
+or invalid signatures still fail in `ClientSidePurchaseVerifier`; they never
+trigger fallback. The no-key policy does not read `signedData`, so it also does
+not claim receipt authenticity when signature fields happen to be present.
+
+Both local implementations use `LocalPurchasePolicy` to own product/package and
+purchase-state eligibility once. This pure Kotlin policy snapshots product IDs,
+validates configuration, rejects consumables and rejects pending/suspended or
+unconfigured observations. RSA verification adds signature and signed-field
+binding at the outer adapter. The no-key implementation returns `Granted(CLIENT)`
+after eligibility, leaving acknowledgement and local entitlements to the engine.
+
+Observation trust cannot distinguish a fabricated record from an authentic Play
+response and cannot establish current account ownership, expiry/refund status,
+replay protection or durable consumable delivery. It adds no persistence and
+does not query Play independently. Foreground restore remains the host's duty.
 
 ## Subscription replacement reconciliation
 

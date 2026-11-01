@@ -49,6 +49,7 @@ internal fun Purchase.toRecord(): PurchaseRecord = PurchaseRecord(
     obfuscatedAccountId = accountIdentifiers?.obfuscatedAccountId,
     obfuscatedProfileId = accountIdentifiers?.obfuscatedProfileId,
     pendingUpdate = pendingPurchaseUpdate?.let { PendingPurchaseUpdate(it.products.toList(), it.purchaseToken) },
+    signedData = SignedPurchaseData(originalJson, signature),
 )
 
 /** Unsupported rental, preorder and installment offers are excluded, not silently misrepresented. */

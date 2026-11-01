@@ -3,6 +3,11 @@ package com.tukonnichiwa.purchasekit.model
 /** Pending transactions must never be verified, granted, acknowledged or consumed. */
 public enum class PurchaseState { PENDING, PURCHASED }
 
+/** Original Play receipt and signature. Sensitive data; never log or persist without protection. */
+public data class SignedPurchaseData(val originalJson: String, val signature: String) {
+    override fun toString(): String = "SignedPurchaseData(originalJson=<redacted>, signature=<redacted>)"
+}
+
 /**
  * An uncommitted prepaid top-up or subscription replacement. The existing purchase remains
  * independently valid. Never verify, grant, acknowledge or consume [token] until Play reports it
@@ -36,6 +41,8 @@ public data class PurchaseRecord(
     val obfuscatedProfileId: String? = null,
     /** A pending change to this existing purchase; it does not replace the parent's state. */
     val pendingUpdate: PendingPurchaseUpdate? = null,
+    /** Optional signed receipt for local signature verification; absent on manually created records. */
+    val signedData: SignedPurchaseData? = null,
 ) {
     init {
         require(productIds.isNotEmpty() && productIds.all { it.isNotBlank() })
@@ -47,11 +54,11 @@ public data class PurchaseRecord(
         "PurchaseRecord(productIds=$productIds, token=<redacted>, state=$state, quantity=$quantity)"
 }
 
-/** Client finalization happens only after the verifier has durably granted the purchase. */
+/** Client finalization happens only after the verifier approves the purchase and any delivery. */
 public enum class Finalization { CLIENT, BACKEND }
 
 public sealed interface VerificationResult {
-    /** The backend validated ownership and committed delivery, including any consumable quantity. */
+    /** The verifier approved access; consumable delivery must already be durably committed. */
     public data class Granted(val finalization: Finalization = Finalization.CLIENT) : VerificationResult
     /** Authoritative rejection. This removes any previously observed local entitlement. */
     public data class Rejected(val reason: String) : VerificationResult
@@ -60,8 +67,10 @@ public sealed interface VerificationResult {
 }
 
 /**
- * Implement using an authenticated backend. Validate package, product, token, account binding,
+ * Prefer an authenticated backend: validate package, product, token, account binding,
  * purchase state and subscription expiry; persist delivery idempotently by token before Granted.
+ * Apps without a backend can explicitly use ClientSidePurchaseVerifier (with a public key) or
+ * PlayBillingPurchaseVerifier (trusting store observations) for subscriptions/non-consumables.
  * Invoked serially; suspending I/O must be cancellation-cooperative and must not block Main.
  * Repeated calls are expected, including after process death and during every restore.
  */
