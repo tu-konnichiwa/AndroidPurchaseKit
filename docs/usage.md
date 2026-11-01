@@ -6,7 +6,12 @@ consuming application. This repository contains only the Android library.
 
 ## 1. Add the library to your application
 
-Android API 26 or newer is required. If the module is already part of your Gradle
+Android API 26 or newer is required. For installation through JitPack, follow the
+[repository and dependency setup](../README.md#install-with-jitpack). Use a pushed
+tag whose JitPack build has succeeded. The published artifact includes dependency
+metadata; no catalog entries need to be copied into the consuming build.
+
+For local development, if the module is already part of your Gradle
 build, add this dependency to your application's `build.gradle.kts`:
 
 ```kotlin
@@ -30,7 +35,7 @@ The consuming build must provide a compatible Android Library plugin and the
 [module configuration](../android-purchase-kit/build.gradle.kts). Preserve your
 application's existing catalog entries.
 
-There is currently no published Maven coordinate. If you distribute the raw AAR,
+If you distribute the raw AAR,
 you must declare its runtime dependencies separately because an AAR alone does
 not include dependency metadata.
 

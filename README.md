@@ -14,7 +14,38 @@ queries, checkout, restore, and verification-before-finalization.
 - Google Play Billing 9.1.0 and coroutines 1.11.0 (managed by the version catalog).
 - Play Console products and an authenticated backend implementing `PurchaseVerifier`.
 
-There is no application or sample module, UI framework, or publishing setup.
+There is no application or sample module or UI framework. JitPack publishing is
+configured for the release AAR and sources; Maven Central publishing is not configured.
+
+## Install with JitPack
+
+Add the repository to the consuming application's `settings.gradle.kts`:
+
+```kotlin
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url = uri("https://jitpack.io")
+            content { includeGroup("com.github.tu-konnichiwa") }
+        }
+    }
+}
+```
+
+Then add the dependency to the application's `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("com.github.tu-konnichiwa:AndroidPurchaseKit:<tag>")
+}
+```
+
+Replace `<tag>` with a pushed Git tag, starting with `1.0.0`, after its JitPack build
+succeeds. This example does not assert that a release has already been published.
+The Maven publication includes transitive dependencies, so the consuming app does
+not need this repository's version catalog. See [JitPack release instructions](docs/publishing.md).
 
 ## Local integration
 
@@ -35,8 +66,8 @@ project(":android-purchase-kit").projectDir = file("../AndroidPurchaseKit/androi
 
 That build must provide compatible `libs` catalog aliases from this repository
 and the Android library plugin. Copy the catalog entries when integrating this
-way. A raw AAR does not carry dependency metadata; consuming the module is preferred
-until a publishing format is configured. There is no published Maven coordinate.
+way. A raw AAR does not carry dependency metadata; use the JitPack dependency or
+consume the module to retain dependency resolution.
 
 ## Quick start
 
@@ -244,8 +275,8 @@ a small JUnit rule supplies `TextUtils.isEmpty` for the real SDK JSON models on 
 
 ## API compatibility
 
-This is an initial, unreleased API. Before a stable 1.0 release, API changes can occur.
-Once versioned releases exist, use semantic versioning, document breaking changes,
-and deprecate APIs before removal. Release automation and publishing are intentionally
-not configured. Design decisions are in [architecture](docs/architecture.md), and
+The first release is planned as `1.0.0`. Use semantic versioning for subsequent
+releases, document breaking changes, and deprecate APIs before removal.
+JitPack builds are configured; automated tagging
+and Maven Central publishing are not configured. Design decisions are in [architecture](docs/architecture.md), and
 release prerequisites are in [readiness](docs/readiness.md).

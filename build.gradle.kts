@@ -2,3 +2,6 @@
 plugins {
     alias(libs.plugins.android.library) apply false
 }
+
+group = providers.gradleProperty("group").orElse("com.github.tu-konnichiwa").get()
+version = providers.gradleProperty("version").orElse("1.0.0").get()

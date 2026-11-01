@@ -1,0 +1,5 @@
+# Java 21 bootstraps the wrapper; gradle-daemon-jvm.properties provisions JDK 25.
+jdk:
+  - openjdk21
+install:
+  - ./gradlew --no-daemon build publishToMavenLocal -Pgroup="$GROUP" -Pversion="$VERSION"
